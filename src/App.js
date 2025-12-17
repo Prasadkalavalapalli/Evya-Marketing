@@ -56,7 +56,7 @@ const MarketingTrackerApp = () => {
   const getStatusCounts = () => {
     return {
       all: entries.length,
-      pending: entries.filter(e => e.status === 'pending').length,
+      pending: entries.filter(e => e.status === 'Pending').length,
       completed: entries.filter(e => e.status === 'completed').length,
       followup: entries.filter(e => e.status === 'followup').length,
       cancelled: entries.filter(e => e.status === 'cancelled').length
@@ -125,48 +125,122 @@ const MarketingTrackerApp = () => {
     fetchEntries();
   }, []);
 
+
+  // Add this useEffect hook near the top of your MarketingTrackerApp component
+useEffect(() => {
+  // Check if geolocation is supported
+  if (!navigator.geolocation) {
+    console.warn('Geolocation is not supported by your browser');
+    // You can set a state to show a warning to the user
+  }
+  
+  // Optional: Check permission status on component mount
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' })
+      .then((permissionStatus) => {
+        console.log('Geolocation permission state:', permissionStatus.state);
+        
+        // Listen for permission changes
+        permissionStatus.onchange = () => {
+          console.log('Geolocation permission changed to:', permissionStatus.state);
+          // You can update UI based on permission status
+        };
+      })
+      .catch((error) => {
+        console.error('Error checking geolocation permission:', error);
+      });
+  }
+}, []);
+
   // Get current location with address lookup
-  const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          
-          // Try to get address from coordinates
-          let address = 'Fetching address...';
-          try {
-            const response = await axios.get(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
-            );
-            
-            if (response.data && response.data.display_name) {
-              address = response.data.display_name;
-            } else {
-              address = `Location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-            }
-          } catch (error) {
-            console.error('Error fetching address:', error);
-            address = `Location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-          }
-          
-          setCurrentEntry({
-            ...currentEntry,
-            latitude: latitude,
-            longitude: longitude,
-            address: address
-          });
-          
-          showToastMessage('Location captured successfully!');
-        },
-        (error) => {
-          console.error("Error getting location:", error);
-          showToastMessage('Unable to get location. Please check permissions.');
+ // Replace your current getCurrentLocation function with this improved version:
+const getCurrentLocation = () => {
+  if (!navigator.geolocation) {
+    showToastMessage('Geolocation is not supported by your browser. Please use a modern browser.');
+    return;
+  }
+
+  // Show loading state
+  showToastMessage('Requesting location permission...');
+
+  // Add timeout for permission request
+  const permissionTimeout = setTimeout(() => {
+    showToastMessage('Location permission request is taking longer than expected...');
+  }, 3000);
+
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      clearTimeout(permissionTimeout);
+      
+      const { latitude, longitude } = position.coords;
+      
+      // Show coordinates immediately
+      setCurrentEntry({
+        ...currentEntry,
+        latitude: latitude,
+        longitude: longitude,
+        address: `Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+      });
+      
+      showToastMessage('Location captured! Getting address...');
+      
+      // Try to get address from coordinates (optional - you can remove this if you just want coordinates)
+      try {
+        const response = await axios.get(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
+        );
+        
+        if (response.data && response.data.display_name) {
+          setCurrentEntry(prev => ({
+            ...prev,
+            address: response.data.display_name
+          }));
+          showToastMessage('Address captured successfully!');
         }
-      );
-    } else {
-      showToastMessage('Geolocation is not supported by your browser.');
+      } catch (error) {
+        console.error('Error fetching address:', error);
+        // Keep the coordinates as address
+        showToastMessage('Location captured with coordinates.');
+      }
+    },
+    (error) => {
+      clearTimeout(permissionTimeout);
+      console.error("Error getting location:", error);
+      
+      // Handle different error cases
+      let errorMessage = 'Unable to get location. Please check permissions.';
+      
+      switch(error.code) {
+        case error.PERMISSION_DENIED:
+          errorMessage = 'Location permission was denied. Please allow location access in your browser settings.';
+          break;
+        case error.POSITION_UNAVAILABLE:
+          errorMessage = 'Location information is unavailable.';
+          break;
+        case error.TIMEOUT:
+          errorMessage = 'Location request timed out. Please try again.';
+          break;
+      }
+      
+      showToastMessage(errorMessage);
+      
+      // If permission denied, you can show instructions
+      if (error.code === error.PERMISSION_DENIED) {
+        // Optional: Show instructions for enabling location
+        setTimeout(() => {
+          if (window.confirm('To enable location:\n1. Click the lock icon in address bar\n2. Select "Site settings"\n3. Allow location access\n\nWould you like to try again?')) {
+            getCurrentLocation();
+          }
+        }, 2000);
+      }
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,  // 10 seconds timeout
+      maximumAge: 0    // Don't use cached position
     }
-  };
+  );
+};
 
   // Handle form input changes
   const handleInputChange = (e) => {
@@ -239,7 +313,7 @@ const MarketingTrackerApp = () => {
         latitude: '',
         longitude: '',
         reminder: '',
-        status: 'pending',
+        status: 'Pending',
         notes: ''
       });
       setEditingId(null);
@@ -271,7 +345,7 @@ const MarketingTrackerApp = () => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed': return colors.primary;
-      case 'pending': return '#FFA500';
+      case 'Pending': return '#FFA500';
       case 'followup': return '#4299E1';
       case 'cancelled': return '#FF6B6B';
       default: return colors.grey;
@@ -296,11 +370,11 @@ const MarketingTrackerApp = () => {
         </button>
         
         <button
-          className={`status-tab ${activeTab === 'pending' ? 'active' : ''}`}
-          onClick={() => setActiveTab('pending')}
+          className={`status-tab ${activeTab === 'Pending' ? 'active' : ''}`}
+          onClick={() => setActiveTab('Pending')}
           style={{
-            backgroundColor: activeTab === 'pending' ? '#FFA500' : colors.white,
-            color: activeTab === 'pending' ? colors.white : colors.black,
+            backgroundColor: activeTab === 'Pending' ? '#FFA500' : colors.white,
+            color: activeTab === 'Pending' ? colors.white : colors.black,
             borderColor: colors.mediumgrey
           }}
         >
@@ -418,7 +492,7 @@ const MarketingTrackerApp = () => {
                 backgroundColor: colors.white
               }}
             >
-              <option value="pending">Pending</option>
+              <option value="Pending">Pending</option>
               <option value="completed">Completed</option>
               <option value="followup">Follow-up</option>
               <option value="cancelled">Closed/Rejected</option>
