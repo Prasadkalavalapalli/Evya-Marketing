@@ -153,91 +153,64 @@ useEffect(() => {
 }, []);
 
   // Get current location with address lookup
- // Replace your current getCurrentLocation function with this improved version:
+ 
 const getCurrentLocation = () => {
+  // Check if geolocation is available
   if (!navigator.geolocation) {
-    showToastMessage('Geolocation is not supported by your browser. Please use a modern browser.');
+    showToastMessage('Geolocation is not supported by your browser.');
     return;
   }
-
-  // Show loading state
-  showToastMessage('Requesting location permission...');
-
-  // Add timeout for permission request
-  const permissionTimeout = setTimeout(() => {
-    showToastMessage('Location permission request is taking longer than expected...');
-  }, 3000);
-
+  
+  // Show loading message
+  showToastMessage('Asking for location permission...');
+  
+  // Browser will show permission popup automatically here
   navigator.geolocation.getCurrentPosition(
     async (position) => {
-      clearTimeout(permissionTimeout);
-      
       const { latitude, longitude } = position.coords;
       
-      // Show coordinates immediately
+      // Set coordinates immediately
       setCurrentEntry({
         ...currentEntry,
         latitude: latitude,
         longitude: longitude,
-        address: `Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+        address: `Location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
       });
       
       showToastMessage('Location captured! Getting address...');
       
-      // Try to get address from coordinates (optional - you can remove this if you just want coordinates)
+      // Try to get address from coordinates
       try {
         const response = await axios.get(
           `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
         );
         
         if (response.data && response.data.display_name) {
-          setCurrentEntry(prev => ({
-            ...prev,
+          setCurrentEntry({
+            ...currentEntry,
+            latitude: latitude,
+            longitude: longitude,
             address: response.data.display_name
-          }));
+          });
           showToastMessage('Address captured successfully!');
         }
       } catch (error) {
         console.error('Error fetching address:', error);
-        // Keep the coordinates as address
+        // Keep coordinates if address fetch fails
         showToastMessage('Location captured with coordinates.');
       }
     },
     (error) => {
-      clearTimeout(permissionTimeout);
       console.error("Error getting location:", error);
       
-      // Handle different error cases
-      let errorMessage = 'Unable to get location. Please check permissions.';
-      
-      switch(error.code) {
-        case error.PERMISSION_DENIED:
-          errorMessage = 'Location permission was denied. Please allow location access in your browser settings.';
-          break;
-        case error.POSITION_UNAVAILABLE:
-          errorMessage = 'Location information is unavailable.';
-          break;
-        case error.TIMEOUT:
-          errorMessage = 'Location request timed out. Please try again.';
-          break;
-      }
-      
-      showToastMessage(errorMessage);
-      
-      // If permission denied, you can show instructions
+      // Simple error messages
       if (error.code === error.PERMISSION_DENIED) {
-        // Optional: Show instructions for enabling location
-        setTimeout(() => {
-          if (window.confirm('To enable location:\n1. Click the lock icon in address bar\n2. Select "Site settings"\n3. Allow location access\n\nWould you like to try again?')) {
-            getCurrentLocation();
-          }
-        }, 2000);
+        showToastMessage('Location permission was denied. Please allow location access.');
+      } else if (error.code === error.TIMEOUT) {
+        showToastMessage('Location request timed out. Please try again.');
+      } else {
+        showToastMessage('Unable to get location. Please try again.');
       }
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,  // 10 seconds timeout
-      maximumAge: 0    // Don't use cached position
     }
   );
 };
