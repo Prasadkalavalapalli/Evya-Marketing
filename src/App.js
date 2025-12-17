@@ -1214,7 +1214,7 @@ const styles = `
 
 /* List View */
 .mobile-list-container {
-  padding-top: 60px;
+  padding-top: 0px;
   min-height: 100vh;
 }
 
