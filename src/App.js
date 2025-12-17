@@ -27,7 +27,7 @@ const MarketingTrackerApp = () => {
   const [toastMessage, setToastMessage] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [viewMode, setViewMode] = useState('list'); // 'list', 'form', 'view'
-
+   const [isInWebView, setIsInWebView] = useState(false);
   // Your branding colors
   const colors = {
     black: '#000000',
@@ -56,7 +56,7 @@ const MarketingTrackerApp = () => {
   const getStatusCounts = () => {
     return {
       all: entries.length,
-      pending: entries.filter(e => e.status === 'Pending').length,
+      pending: entries.filter(e => e.status === 'pending').length,
       completed: entries.filter(e => e.status === 'completed').length,
       followup: entries.filter(e => e.status === 'followup').length,
       cancelled: entries.filter(e => e.status === 'cancelled').length
@@ -128,93 +128,118 @@ const MarketingTrackerApp = () => {
 
   // Add this useEffect hook near the top of your MarketingTrackerApp component
 useEffect(() => {
-  // Check if geolocation is supported
-  if (!navigator.geolocation) {
-    console.warn('Geolocation is not supported by your browser');
-    // You can set a state to show a warning to the user
-  }
-  
-  // Optional: Check permission status on component mount
-  if (navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name: 'geolocation' })
-      .then((permissionStatus) => {
-        console.log('Geolocation permission state:', permissionStatus.state);
+  // Check if we're in a React Native WebView
+  if (window.ReactNativeWebView) {
+    setIsInWebView(true);
+    console.log('Running in React Native WebView');
+    
+    // Listen for location from React Native
+    window.addEventListener('message', (event) => {
+      try {
+        const data = JSON.parse(event.data);
         
-        // Listen for permission changes
-        permissionStatus.onchange = () => {
-          console.log('Geolocation permission changed to:', permissionStatus.state);
-          // You can update UI based on permission status
-        };
-      })
-      .catch((error) => {
-        console.error('Error checking geolocation permission:', error);
-      });
+        if (data.type === 'locationUpdate') {
+          // Location received from React Native
+          const { latitude, longitude, address } = data;
+          
+          setCurrentEntry(prev => ({
+            ...prev,
+            latitude: latitude,
+            longitude: longitude,
+            address: address || `Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+          }));
+          
+          showToastMessage('Location captured from mobile app!');
+          
+          // Get detailed address
+          if (latitude && longitude) {
+            fetchAddressFromCoordinates(latitude, longitude);
+          }
+        }
+        
+        if (data.type === 'locationError') {
+          showToastMessage(data.error || 'Failed to get location');
+        }
+      } catch (error) {
+        console.error('Error parsing native message:', error);
+      }
+    });
   }
 }, []);
-
   // Get current location with address lookup
  
 const getCurrentLocation = () => {
-  // Check if geolocation is available
-  if (!navigator.geolocation) {
-    showToastMessage('Geolocation is not supported by your browser.');
+  // If in WebView, request location from React Native
+  if (window.ReactNativeWebView) {
+    showToastMessage('Requesting location permission...');
+    
+    // Send message to React Native
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: 'requestLocation'
+    }));
+    
+    // Optional: Set up a listener for the response
+    const handleNativeLocation = (event) => {
+      const data = event.detail;
+      if (data.type === 'locationUpdate') {
+        // Location received
+        console.log('Location from native:', data);
+      }
+    };
+    
+    window.addEventListener('nativeLocation', handleNativeLocation);
     return;
   }
   
-  // Show loading message
-  showToastMessage('Asking for location permission...');
+  // Fallback for regular browsers
+  if (!navigator.geolocation) {
+    showToastMessage('Geolocation is not supported.');
+    return;
+  }
   
-  // Browser will show permission popup automatically here
+  showToastMessage('Requesting location permission...');
+  
   navigator.geolocation.getCurrentPosition(
     async (position) => {
       const { latitude, longitude } = position.coords;
       
-      // Set coordinates immediately
-      setCurrentEntry({
-        ...currentEntry,
+      setCurrentEntry(prev => ({
+        ...prev,
         latitude: latitude,
         longitude: longitude,
-        address: `Location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-      });
+        address: `Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+      }));
       
-      showToastMessage('Location captured! Getting address...');
+      showToastMessage('Location captured!');
       
-      // Try to get address from coordinates
-      try {
-        const response = await axios.get(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
-        );
-        
-        if (response.data && response.data.display_name) {
-          setCurrentEntry({
-            ...currentEntry,
-            latitude: latitude,
-            longitude: longitude,
-            address: response.data.display_name
-          });
-          showToastMessage('Address captured successfully!');
-        }
-      } catch (error) {
-        console.error('Error fetching address:', error);
-        // Keep coordinates if address fetch fails
-        showToastMessage('Location captured with coordinates.');
-      }
+      // Get address
+      await fetchAddressFromCoordinates(latitude, longitude);
     },
     (error) => {
-      console.error("Error getting location:", error);
-      
-      // Simple error messages
-      if (error.code === error.PERMISSION_DENIED) {
-        showToastMessage('Location permission was denied. Please allow location access.');
-      } else if (error.code === error.TIMEOUT) {
-        showToastMessage('Location request timed out. Please try again.');
-      } else {
-        showToastMessage('Unable to get location. Please try again.');
-      }
-    }
+      showToastMessage('Please allow location access to use this feature.');
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
   );
 };
 
+// Add this helper function
+const fetchAddressFromCoordinates = async (latitude, longitude) => {
+  try {
+    const response = await axios.get(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
+    );
+    
+    if (response.data && response.data.display_name) {
+      setCurrentEntry(prev => ({
+        ...prev,
+        address: response.data.display_name
+      }));
+      showToastMessage('Address captured successfully!');
+    }
+  } catch (error) {
+    console.error('Error fetching address:', error);
+  }
+};
   // Handle form input changes
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -286,7 +311,7 @@ const getCurrentLocation = () => {
         latitude: '',
         longitude: '',
         reminder: '',
-        status: 'Pending',
+        status: 'pending',
         notes: ''
       });
       setEditingId(null);
@@ -318,7 +343,7 @@ const getCurrentLocation = () => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed': return colors.primary;
-      case 'Pending': return '#FFA500';
+      case 'pending': return '#FFA500';
       case 'followup': return '#4299E1';
       case 'cancelled': return '#FF6B6B';
       default: return colors.grey;
@@ -343,11 +368,11 @@ const getCurrentLocation = () => {
         </button>
         
         <button
-          className={`status-tab ${activeTab === 'Pending' ? 'active' : ''}`}
-          onClick={() => setActiveTab('Pending')}
+          className={`status-tab ${activeTab === 'pending' ? 'active' : ''}`}
+          onClick={() => setActiveTab('pending')}
           style={{
-            backgroundColor: activeTab === 'Pending' ? '#FFA500' : colors.white,
-            color: activeTab === 'Pending' ? colors.white : colors.black,
+            backgroundColor: activeTab === 'pending' ? '#FFA500' : colors.white,
+            color: activeTab === 'pending' ? colors.white : colors.black,
             borderColor: colors.mediumgrey
           }}
         >
@@ -465,7 +490,7 @@ const getCurrentLocation = () => {
                 backgroundColor: colors.white
               }}
             >
-              <option value="Pending">Pending</option>
+              <option value="pending">Pending</option>
               <option value="completed">Completed</option>
               <option value="followup">Follow-up</option>
               <option value="cancelled">Closed/Rejected</option>
