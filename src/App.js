@@ -126,16 +126,16 @@ const MarketingTrackerApp = () => {
   }, []);
 
 
-  // Add this useEffect hook near the top of your MarketingTrackerApp component
+// CHANGE THIS useEffect:
 useEffect(() => {
-  // Check if we're in a React Native WebView
   if (window.ReactNativeWebView) {
     setIsInWebView(true);
     console.log('Running in React Native WebView');
     
-    // Listen for location from React Native
-    window.addEventListener('message', (event) => {
+    // Use document.addEventListener instead of window
+    const handleNativeMessage = (event) => {
       try {
+        console.log('DEBUG: Message received:', event.data);
         const data = JSON.parse(event.data);
         
         if (data.type === 'locationUpdate') {
@@ -149,7 +149,7 @@ useEffect(() => {
             address: address || `Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
           }));
           
-          showToastMessage('Location captured from mobile app!');
+          showToastMessage('Location captured!');
           
           // Get detailed address
           if (latitude && longitude) {
@@ -163,35 +163,41 @@ useEffect(() => {
       } catch (error) {
         console.error('Error parsing native message:', error);
       }
-    });
+    };
+    
+    // ✅ CORRECT: Use document instead of window
+    document.addEventListener('message', handleNativeMessage);
+    
+    // Cleanup
+    return () => {
+      document.removeEventListener('message', handleNativeMessage);
+    };
   }
 }, []);
-  // Get current location with address lookup
- 
+
+// CHANGE THIS getCurrentLocation function:
 const getCurrentLocation = () => {
   // If in WebView, request location from React Native
   if (window.ReactNativeWebView) {
-    showToastMessage('Requesting location permission...');
+    console.log('DEBUG: In WebView, requesting location');
+    showToastMessage('Requesting location...');
     
     // Send message to React Native
     window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'requestLocation'
+      type: 'requestLocation',
+      timestamp: Date.now()
     }));
     
-    // Optional: Set up a listener for the response
-    const handleNativeLocation = (event) => {
-      const data = event.detail;
-      if (data.type === 'locationUpdate') {
-        // Location received
-        console.log('Location from native:', data);
-      }
-    };
+    // ❌ REMOVE THIS ENTIRE SECTION:
+    // Don't add event listener here - it's already in useEffect
+    // const handleMessage = (event) => { ... };
+    // window.addEventListener('message', handleMessage);
+    // setTimeout(() => { ... }, 15000);
     
-    window.addEventListener('nativeLocation', handleNativeLocation);
     return;
   }
   
-  // Fallback for regular browsers
+  // Rest of your function for regular browsers...
   if (!navigator.geolocation) {
     showToastMessage('Geolocation is not supported.');
     return;
@@ -201,19 +207,7 @@ const getCurrentLocation = () => {
   
   navigator.geolocation.getCurrentPosition(
     async (position) => {
-      const { latitude, longitude } = position.coords;
-      
-      setCurrentEntry(prev => ({
-        ...prev,
-        latitude: latitude,
-        longitude: longitude,
-        address: `Coordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-      }));
-      
-      showToastMessage('Location captured!');
-      
-      // Get address
-      await fetchAddressFromCoordinates(latitude, longitude);
+      // ... existing code
     },
     (error) => {
       showToastMessage('Please allow location access to use this feature.');
@@ -221,7 +215,6 @@ const getCurrentLocation = () => {
     { enableHighAccuracy: true, timeout: 10000 }
   );
 };
-
 // Add this helper function
 const fetchAddressFromCoordinates = async (latitude, longitude) => {
   try {
